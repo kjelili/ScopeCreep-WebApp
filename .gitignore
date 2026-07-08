@@ -1,0 +1,17 @@
+# secrets & local data — never commit
+.env
+sms_history.json
+*key*.docx
+~$*
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

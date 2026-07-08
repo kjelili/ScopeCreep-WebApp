@@ -1,0 +1,9 @@
+[project]
+name = "scopecreep-detector"
+version = "2.1.0"
+description = "RAG-grounded scope-creep detection for project email (research artefact)"
+requires-python = ">=3.10"
+
+# Vercel entrypoint: a FastAPI instance named `app` in app/main.py
+[project.scripts]
+app = "app.main:app"

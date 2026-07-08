@@ -1,0 +1,171 @@
+"""API integration tests for the stateless (serverless-safe) API."""
+
+import sys
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.main import app
+
+client = TestClient(app)
+
+SCOPE_TXT = (
+    "The project delivers a three-storey office building. "
+    "Foundation works include piling and ground beams. "
+    "The roofing system uses standing-seam metal panels. "
+    "External works are limited to the car park and access road."
+).encode()
+
+EMAILS_CSV = (
+    "email_body\n"
+    "Can we add a rooftop garden to the building?\n"
+    "Minutes from the piling progress meeting attached.\n"
+    "Client wants extra EV charging points installed urgently - budget?\n"
+).encode()
+
+
+def _uploads():
+    s = client.post("/api/scope",
+                    files={"file": ("scope.txt", SCOPE_TXT, "text/plain")})
+    e = client.post("/api/emails",
+                    files={"file": ("emails.csv", EMAILS_CSV, "text/csv")})
+    assert s.status_code == 200 and e.status_code == 200
+    return s.json(), e.json()
+
+
+def test_health_reports_limits():
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["limits"]["batch"] == 10
+
+
+def test_scope_returns_chunks_stateless():
+    s, _ = _uploads()
+    assert s["count"] >= 1
+    assert isinstance(s["chunks"], list)
+    assert "three-storey" in s["chunks"][0]
+
+
+def test_emails_returns_rows_stateless():
+    _, e = _uploads()
+    assert e["count"] == 3
+    assert e["rows"][0]["email_body"].startswith("Can we add")
+
+
+def test_scope_rejects_unsupported_and_tiny():
+    assert client.post("/api/scope", files={
+        "file": ("x.xlsx", b"junk", "application/junk")}).status_code == 400
+    assert client.post("/api/scope", files={
+        "file": ("x.txt", b"hi", "text/plain")}).status_code == 400
+
+
+def test_emails_missing_column():
+    r = client.post("/api/emails",
+                    files={"file": ("e.csv", b"a,b\n1,2\n", "text/csv")})
+    assert r.status_code == 400 and "email_body" in r.json()["detail"]
+
+
+def test_analyze_batch_demo_end_to_end():
+    s, e = _uploads()
+    r = client.post("/api/analyze-batch", json={
+        "scope_chunks": s["chunks"],
+        "emails": [{"index": i, "email_body": row["email_body"]}
+                   for i, row in enumerate(e["rows"])],
+        "mode": "demo",
+    })
+    assert r.status_code == 200
+    results = r.json()["results"]
+    assert [x["scope_creep"] for x in results] == ["yes", "no", "yes"]
+    assert all(x["risk_level"] in ("low", "moderate", "high", "extreme")
+               for x in results)
+    # grounding metadata on every row (FR6)
+    assert all("grounded" in x and "grounding_score" in x for x in results)
+    # demo mode never returns embeddings
+    assert "scope_embeddings" not in r.json()
+
+
+def test_analyze_batch_respects_batch_limit():
+    s, _ = _uploads()
+    r = client.post("/api/analyze-batch", json={
+        "scope_chunks": s["chunks"],
+        "emails": [{"index": i, "email_body": f"email {i}"}
+                   for i in range(11)],
+        "mode": "demo",
+    })
+    assert r.status_code == 422  # pydantic max_length
+
+
+def test_analyze_batch_embeddings_length_mismatch():
+    s, _ = _uploads()
+    r = client.post("/api/analyze-batch", json={
+        "scope_chunks": s["chunks"],
+        "scope_embeddings": [[0.1, 0.2]],  # wrong length vs chunks
+        "emails": [{"index": 0, "email_body": "add a window"}],
+        "mode": "demo",
+    })
+    # only valid when it matches chunk count
+    assert r.status_code in (200, 400)
+    if len(s["chunks"]) != 1:
+        assert r.status_code == 400
+
+
+def test_analyze_batch_precomputed_embeddings_demo():
+    """Round-trip: demo embeddings computed client-side style, sent back."""
+    from app.demo import DemoProvider
+    s, _ = _uploads()
+    emb = DemoProvider().embed(s["chunks"]).tolist()
+    r = client.post("/api/analyze-batch", json={
+        "scope_chunks": s["chunks"], "scope_embeddings": emb,
+        "emails": [{"index": 0,
+                    "email_body": "Please add an extra meeting room"}],
+        "mode": "demo",
+    })
+    assert r.status_code == 200
+    assert r.json()["results"][0]["scope_creep"] == "yes"
+
+
+def test_openai_mode_requires_key():
+    s, _ = _uploads()
+    r = client.post("/api/analyze-batch", json={
+        "scope_chunks": s["chunks"],
+        "emails": [{"index": 0, "email_body": "hi"}],
+        "mode": "openai",
+    })
+    assert r.status_code == 400
+
+
+def test_notify_requires_twilio_or_fails_clearly(monkeypatch):
+    monkeypatch.delenv("TWILIO_ACCOUNT_SID", raising=False)
+    r = client.post("/api/notify", json={
+        "phones": ["+447911123456"],
+        "items": [{"ref": "r1", "risk_level": "high", "index": 0}],
+        "run_id": "test",
+    })
+    assert r.status_code == 400
+    assert "Twilio" in r.json()["detail"]
+
+
+def test_notify_rejects_bad_numbers():
+    r = client.post("/api/notify", json={
+        "phones": ["not-a-number"],
+        "items": [{"ref": "r1", "risk_level": "high", "index": 0}],
+    })
+    assert r.status_code == 400
+    assert "E.164" in r.json()["detail"]
+
+
+def test_sample_data_listing():
+    assert client.get("/api/sample-data").status_code == 200
+
+
+def test_sample_path_traversal_blocked():
+    assert client.get("/sample/..%2f..%2fapp%2fmain.py").status_code == 404
+
+
+def test_static_landing_served():
+    r = client.get("/")
+    assert r.status_code == 200 and "Scope" in r.text
