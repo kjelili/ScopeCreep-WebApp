@@ -184,8 +184,11 @@ def test_openai_mode_uses_server_key_when_present(monkeypatch):
         "emails": [{"index": 0, "email_body": "hi"}],
         "mode": "openai",
     })
-    assert r.status_code == 200
-    assert r.json()["results"][0]["scope_creep"] in ("yes", "no", "error")
+    # must NOT be rejected for a missing key (400); with a fake key the
+    # provider fails and the up-front check reports it clearly as 502
+    assert r.status_code in (200, 502)
+    if r.status_code == 502:
+        assert "AI provider" in r.json()["detail"]
 
 
 def test_health_reports_server_key(monkeypatch):
@@ -193,3 +196,30 @@ def test_health_reports_server_key(monkeypatch):
     assert client.get("/api/health").json()["server_openai_key"] is False
     monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
     assert client.get("/api/health").json()["server_openai_key"] is True
+
+
+def test_openai_provider_failure_returns_clear_error(monkeypatch):
+    """Auth/billing failures must surface as 502 with a readable detail."""
+    class BrokenProvider:
+        name = "openai"
+
+        def __init__(self, key):
+            pass
+
+        def embed(self, texts):
+            raise RuntimeError("invalid_api_key: Incorrect API key provided")
+
+        def complete(self, s, u):
+            raise RuntimeError("should not reach")
+
+    import app.main as m
+    monkeypatch.setattr(m.eng, "OpenAIProvider", BrokenProvider)
+    s, _ = _uploads()
+    r = client.post("/api/analyze-batch", json={
+        "scope_chunks": s["chunks"],
+        "emails": [{"index": 0, "email_body": "add a window"}],
+        "mode": "openai", "api_key": "sk-anything",
+    })
+    assert r.status_code == 502
+    assert "invalid_api_key" in r.json()["detail"]
+    assert "Common causes" in r.json()["detail"]

@@ -187,6 +187,18 @@ def analyze_batch(req: AnalyzeBatchRequest):
     else:
         index = eng.ScopeIndex.from_chunks(req.scope_chunks, provider)
 
+    # Embed the baseline up front so provider problems (invalid key, no
+    # billing, quota) surface as one clear error instead of an opaque 500.
+    if req.mode == "openai" and req.scope_embeddings is None:
+        try:
+            _ = index.matrix
+        except Exception as exc:
+            raise HTTPException(
+                502, "The AI provider rejected the request: "
+                     f"{type(exc).__name__}: {str(exc)[:300]}. "
+                     "Common causes: invalid API key, no billing/credit on "
+                     "the OpenAI account, or a project-restricted key.")
+
     results = []
     for item in req.emails:
         j = eng.analyse_email(item.email_body, index, provider,
@@ -197,7 +209,10 @@ def analyze_batch(req: AnalyzeBatchRequest):
 
     out = {"results": results}
     if req.include_embeddings and req.mode == "openai":
-        out["scope_embeddings"] = index.matrix.tolist()
+        try:
+            out["scope_embeddings"] = index.matrix.tolist()
+        except Exception:
+            pass  # embeddings cache is an optimisation, never a failure
     return out
 
 
