@@ -35,6 +35,7 @@ Project → Settings → Environment Variables:
 
 | Name | Value |
 |---|---|
+| `OPENAI_API_KEY` | server-held OpenAI key — used when a tester leaves the key field blank |
 | `TWILIO_ACCOUNT_SID` | from the Twilio console |
 | `TWILIO_AUTH_TOKEN` | from the Twilio console |
 | `TWILIO_PHONE_NUMBER` | your Twilio number, E.164 |

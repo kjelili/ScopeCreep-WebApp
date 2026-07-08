@@ -169,3 +169,27 @@ def test_sample_path_traversal_blocked():
 def test_static_landing_served():
     r = client.get("/")
     assert r.status_code == 200 and "Scope" in r.text
+
+
+def test_openai_mode_uses_server_key_when_present(monkeypatch):
+    """With OPENAI_API_KEY set server-side, a request without a key must not
+    be rejected with 400 (rows may error later — that is contained)."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    for var in ("ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy",
+                "HTTP_PROXY", "http_proxy"):
+        monkeypatch.delenv(var, raising=False)
+    s, _ = _uploads()
+    r = client.post("/api/analyze-batch", json={
+        "scope_chunks": s["chunks"],
+        "emails": [{"index": 0, "email_body": "hi"}],
+        "mode": "openai",
+    })
+    assert r.status_code == 200
+    assert r.json()["results"][0]["scope_creep"] in ("yes", "no", "error")
+
+
+def test_health_reports_server_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert client.get("/api/health").json()["server_openai_key"] is False
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    assert client.get("/api/health").json()["server_openai_key"] is True

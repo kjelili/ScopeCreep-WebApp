@@ -21,6 +21,7 @@ Security notes (deliberate for a research prototype):
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -102,9 +103,15 @@ async def _read_limited(file: UploadFile) -> bytes:
 
 def _provider(mode: str, api_key: Optional[str]):
     if mode == "openai":
-        if not api_key or not api_key.strip():
-            raise HTTPException(400, "OpenAI mode requires an API key.")
-        return eng.OpenAIProvider(api_key.strip())
+        # per-request key wins; otherwise fall back to the server-held key
+        # (set OPENAI_API_KEY in the hosting environment). NFR3: neither is
+        # ever logged or persisted.
+        key = (api_key or os.getenv("OPENAI_API_KEY") or "").strip()
+        if not key:
+            raise HTTPException(
+                400, "OpenAI mode requires an API key — paste one in the "
+                     "app, or configure OPENAI_API_KEY on the server.")
+        return eng.OpenAIProvider(key)
     return DemoProvider()
 
 
@@ -114,6 +121,7 @@ def _provider(mode: str, api_key: Optional[str]):
 def health():
     return {"status": "ok", "version": app.version,
             "twilio_configured": sms_mod.twilio_configured(),
+            "server_openai_key": bool(os.getenv("OPENAI_API_KEY")),
             "limits": {"upload_bytes": MAX_UPLOAD, "emails": MAX_EMAILS,
                        "batch": MAX_BATCH}}
 

@@ -51,7 +51,7 @@ Open <http://127.0.0.1:8000>, click **Load sample project**, then
 ## 🧪 Testing
 
 ```bash
-python -m pytest tests/ -v            # backend: 46 tests, no network
+python -m pytest tests/ -v            # backend: 48 tests, no network
 node --test tests/scrubber.test.mjs   # privacy scrub: 17 tests
 ```
 
@@ -65,7 +65,7 @@ app/                    FastAPI backend
 ├── sms.py              Twilio alerts with de-duplication
 └── main.py             stateless HTTP API + static hosting
 static/                 landing page, app UI, client-side PII scrubber
-tests/                  pytest + node test suites (63 tests)
+tests/                  pytest + node test suites (65 tests)
 docs/                   full documentation set
 test_data/              sample scope document + 25 test emails
 ```

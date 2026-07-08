@@ -25,6 +25,7 @@ const state = {
   results: [], summary: null, smsOutcomes: [],
   filter: "all", search: "", showReal: true,
   twilioConfigured: false,
+  serverKey: false,
 };
 
 const BATCH = { demo: 25, openai: 4 };
@@ -308,7 +309,7 @@ $("#btn-cancel").addEventListener("click", () => {
 
 async function runAnalysis() {
   const apiKey = $("#api-key").value.trim();
-  if (state.mode === "openai" && !apiKey) {
+  if (state.mode === "openai" && !apiKey && !state.serverKey) {
     return toast("Enter your OpenAI API key or switch to demo mode.", true);
   }
   const rows = state.emails.rows;
@@ -335,7 +336,7 @@ async function runAnalysis() {
         top_k: 3,
       };
       if (state.mode === "openai") {
-        body.api_key = apiKey;
+        if (apiKey) body.api_key = apiKey;
         if (state.scopeEmbeddings) body.scope_embeddings = state.scopeEmbeddings;
         else body.include_embeddings = true;
       }
@@ -590,5 +591,11 @@ wireEmailsDrop();
 renderDictChips();
 setStep(1, 0);
 api("/api/health")
-  .then((h) => { state.twilioConfigured = !!h.twilio_configured; })
+  .then((h) => {
+    state.twilioConfigured = !!h.twilio_configured;
+    state.serverKey = !!h.server_openai_key;
+    if (state.serverKey) {
+      $("#api-key").placeholder = "Optional — this deployment provides a key";
+    }
+  })
   .catch(() => {});

@@ -34,7 +34,7 @@
   <div class="hero-grid" aria-hidden="true"></div>
   <div class="container hero-inner">
     <span class="eyebrow">⚡ RAG-grounded AI &nbsp;·&nbsp; built from doctoral research</span>
-    <h1>Scope creep starts from communications.<br><em>Catch it in the project email.</em></h1>
+    <h1>Scope creep starts from communications.<br><em>Catch them in the project emails.</em></h1>
     <p class="lede">
       “Just add an extra outlet, we’ll sort the paperwork later.” Every project
       manager has seen that email — and watched it become a budget overrun.
@@ -172,6 +172,35 @@
 </footer>
 
 <script>
-  // scroll reveal (respects prefers-reduced-motion via CSS)
-  const io = new IntersectionObserver(
-    entries => entries.forEach(e 
+  // Scroll reveal (respects prefers-reduced-motion via CSS).
+  // The observer alone is not enough: on anchor jumps (#how), refreshes with
+  // restored scroll position, and back/forward cache restores, its initial
+  // notifications can be missed and content stays hidden. sweep() reveals
+  // anything at or above the viewport immediately; the observer handles the
+  // rest as it scrolls into view.
+  (function () {
+    const reveal = (el) => el.classList.add('in');
+    const sweep = () => {
+      const vh = window.innerHeight || 800;
+      document.querySelectorAll('.reveal:not(.in)').forEach((el) => {
+        if (el.getBoundingClientRect().top < vh * 0.95) reveal(el);
+      });
+    };
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) { reveal(e.target); io.unobserve(e.target); }
+        });
+      }, { threshold: 0.12 });
+      document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+    } else {
+      document.querySelectorAll('.reveal').forEach(reveal); // ancient browsers
+    }
+    sweep();                                          // load (incl. anchor/restored scroll)
+    window.addEventListener('pageshow', sweep);       // back/forward cache
+    window.addEventListener('hashchange', () => setTimeout(sweep, 450));
+    window.addEventListener('load', sweep);           // after fonts/layout settle
+  })();
+</script>
+</body>
+</html>
