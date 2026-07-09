@@ -406,3 +406,8 @@ mark.pii {
 }
 #scrub-preview .evidence-chunk { background: #fff; }
 #dict-chips:empty { display: none; }
+
+/* PM review + evidence basis */
+.b-omission { color: var(--brand-ink); background: var(--brand-soft); }
+.b-reviewed { color: var(--ok); background: var(--ok-soft); }
+.drawer .seg button { min-height: 40px; padding: 0 var(--s3); }

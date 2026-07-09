@@ -24,6 +24,7 @@ const state = {
   runId: null,
   results: [], summary: null, smsOutcomes: [],
   filter: "all", search: "", showReal: true,
+  reviews: {},          // index -> {verdict, risk, evidence, note, at} (local only)
   twilioConfigured: false,
   serverKey: false,
 };
@@ -319,6 +320,7 @@ async function runAnalysis() {
   state.running = true;
   state.cancelled = false;
   state.results = [];
+  state.reviews = {};
   state.runId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
   $("#btn-run").disabled = true;
   $("#btn-cancel").style.display = "";
@@ -473,7 +475,8 @@ function renderSummaryCards() {
     <div class="sum"><b>${s.flagged ?? 0}</b><span>flagged as scope creep</span></div>
     <div class="sum"><b style="color:var(--risk-high)">${(rc.high ?? 0) + (rc.extreme ?? 0)}</b><span>high / extreme risk</span></div>
     <div class="sum"><b style="color:var(--brand-ink)">${s.grounded ?? 0}</b><span>with verified evidence</span></div>
-    <div class="sum"><b>${smsSent}</b><span>SMS alerts sent</span></div>`;
+    <div class="sum"><b>${smsSent}</b><span>SMS alerts sent</span></div>
+    <div class="sum"><b style="color:var(--ok)">${Object.keys(state.reviews).length}</b><span>reviewed by you</span></div>`;
 }
 
 function visibleRows() {
@@ -483,6 +486,7 @@ function visibleRows() {
     if (state.filter === "high" && !["high", "extreme"].includes(r.risk_level)) return false;
     if (state.filter === "ungrounded" && (r.grounded || r.scope_creep !== "yes")) return false;
     if (state.filter === "alerts" && !r.alert) return false;
+    if (state.filter === "unreviewed" && state.reviews[r.index]) return false;
     if (q) {
       const shown = state.session && state.showReal
         ? state.session.reidentify(r.email_body) : r.email_body;
@@ -497,6 +501,17 @@ function visibleRows() {
 
 function badge(cls, text) { return `<span class="badge ${cls}">${text}</span>`; }
 
+/* Evidence state: verified quotation / boundary clause (omission) / none */
+function evidenceState(r) {
+  if (r.scope_creep !== "yes") return null;
+  const ref = (r.reference_scope_line || "").trim().toLowerCase();
+  if (!ref || ref === "none") return { cls: "b-ungrounded", label: "no citation" };
+  if (r.grounded && r.evidence_basis === "omission")
+    return { cls: "b-omission", label: "boundary ✓" };
+  if (r.grounded) return { cls: "b-grounded", label: "verified" };
+  return { cls: "b-ungrounded", label: "unverified" };
+}
+
 function renderRows() {
   const rows = visibleRows();
   const head = `<div class="rrow head"><span>#</span><span>Email</span><span>Verdict</span><span>Risk</span><span>Evidence</span></div>`;
@@ -506,7 +521,7 @@ function renderRows() {
       <span class="body">${displayText(r.email_body)}</span>
       <span>${badge("b-" + r.scope_creep, r.scope_creep === "yes" ? "Scope creep" : r.scope_creep === "no" ? "In scope" : "Error")}</span>
       <span>${r.scope_creep === "yes" ? badge("b-" + r.risk_level, r.risk_level) : ""}</span>
-      <span>${r.scope_creep === "yes" ? badge(r.grounded ? "b-grounded" : "b-ungrounded", r.grounded ? "verified" : "unverified") : ""}</span>
+      <span>${(() => { const e = evidenceState(r); return e ? badge(e.cls, e.label) : ""; })()}${state.reviews[r.index] ? " " + badge("b-reviewed", "PM ✓") : ""}</span>
     </div>`).join("")
     : `<div class="rrow" style="cursor:default"><span></span><span class="body" style="color:var(--muted)">Nothing matches this filter.</span></div>`);
 
@@ -529,14 +544,22 @@ $("#search").addEventListener("input", (e) => { state.search = e.target.value; r
 $("#btn-export").addEventListener("click", () => {
   if (!state.results.length) return;
   const cols = ["index", "email_body", "scope_creep", "risk_level",
-    "justification", "suggestion", "reference_scope_line", "grounded",
-    "grounding_score", "low_relevance", "impact_analysis", "alert", "model"];
+    "justification", "suggestion", "reference_scope_line", "evidence_basis",
+    "grounded", "grounding_score", "low_relevance", "impact_analysis",
+    "alert", "model",
+    "pm_verdict", "pm_risk", "pm_evidence", "pm_note", "pm_reviewed_at"];
   const cell = (v) => {
     const s = String(v ?? "");
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
+  const rowsOut = state.results.map((r) => {
+    const rv = state.reviews[r.index] || {};
+    return { ...r, pm_verdict: rv.verdict || "", pm_risk: rv.risk || "",
+             pm_evidence: rv.evidence || "", pm_note: rv.note || "",
+             pm_reviewed_at: rv.at || "" };
+  });
   const csv = [cols.join(",")]
-    .concat(state.results.map((r) => cols.map((c) => cell(r[c])).join(",")))
+    .concat(rowsOut.map((r) => cols.map((c) => cell(r[c])).join(",")))
     .join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -566,14 +589,80 @@ function openDrawer(i) {
     <div class="kv"><div class="k">Justification</div><div class="v">${displayText(r.justification) || "—"}</div></div>
     <div class="kv"><div class="k">Suggested action</div><div class="v">${displayText(r.suggestion) || "—"}</div></div>
     <div class="kv"><div class="k">Impact analysis</div><div class="v">${displayText(r.impact_analysis) || "—"}</div></div>
-    <div class="kv"><div class="k">Cited scope clause ${r.grounded
-      ? `<span style="color:var(--ok)">✓ verified in baseline (score ${r.grounding_score})</span>`
-      : `<span style="color:var(--danger)">✗ not verified (score ${r.grounding_score})</span>`}</div>
+    <div class="kv"><div class="k">Cited scope clause ${(() => {
+        if (r.grounded && r.evidence_basis === "omission")
+          return `<span style="color:var(--brand-ink)">✓ boundary clause verified — creep by omission (score ${r.grounding_score})</span>`;
+        if (r.grounded)
+          return `<span style="color:var(--ok)">✓ verified in baseline (score ${r.grounding_score})</span>`;
+        return `<span style="color:var(--danger)">✗ not verified (score ${r.grounding_score})</span>`;
+      })()}</div>
       <div class="v">${esc(r.reference_scope_line)}</div></div>
     <div class="kv"><div class="k">Retrieved scope sections</div>${retrieved || "<div class='v'>—</div>"}</div>
-    <div class="kv"><div class="k">Engine</div><div class="v">${esc(r.model || "—")}${r.low_relevance ? " · ⚠ low retrieval relevance" : ""}</div></div>`;
+    <div class="kv"><div class="k">Engine</div><div class="v">${esc(r.model || "—")}${r.low_relevance ? " · ⚠ low retrieval relevance" : ""}</div></div>
+    ${reviewFormHTML(r)}`;
+  wireReviewForm(r);
   $("#drawer").classList.add("open");
   $("#veil").classList.add("open");
+}
+
+/* ---------------------------------------------- PM review (FR7, local) */
+
+function reviewFormHTML(r) {
+  const rv = state.reviews[r.index] || {};
+  const verdict = rv.verdict || r.scope_creep;
+  const risk = rv.risk || r.risk_level;
+  const seg = (id, opts, cur) => `<div class="seg" id="${id}">` + opts.map(([v, lab]) =>
+    `<button type="button" data-v="${v}" class="${v === cur ? "on" : ""}">${lab}</button>`).join("") + "</div>";
+  return `
+    <div class="kv" style="border-top:2px solid var(--line); padding-top:var(--s4)">
+      <div class="k">Project manager review — your judgement, recorded in the export</div>
+      <div class="switch-row" style="margin:var(--s3) 0; gap:var(--s3)">
+        ${seg("rv-verdict", [["yes", "Scope creep"], ["no", "In scope"]], verdict)}
+        ${seg("rv-risk", [["low", "Low"], ["moderate", "Mod"], ["high", "High"], ["extreme", "Extreme"]], risk)}
+      </div>
+      <div class="switch-row" style="margin-bottom:var(--s3)">
+        ${seg("rv-evidence", [["confirmed", "Evidence correct"], ["rejected", "Evidence wrong"], ["unsure", "Unsure"]], rv.evidence || "unsure")}
+      </div>
+      <input type="text" id="rv-note" placeholder="Reviewer note (optional)" value="${esc(rv.note || "")}">
+      <div class="runbar" style="margin-top:var(--s3)">
+        <button class="btn btn-primary btn-sm" id="rv-save">Save review</button>
+        ${rv.at ? `<button class="btn btn-ghost btn-sm" id="rv-clear">Clear</button>` : ""}
+        <span class="run-meta" id="rv-status">${rv.at ? "Reviewed " + new Date(rv.at).toLocaleString() : "Not reviewed yet"}</span>
+      </div>
+    </div>`;
+}
+
+function wireReviewForm(r) {
+  const pick = (id) => {
+    const el = $("#" + id);
+    if (!el) return;
+    el.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      [...el.children].forEach((x) => x.classList.toggle("on", x === b));
+    });
+  };
+  ["rv-verdict", "rv-risk", "rv-evidence"].forEach(pick);
+  const cur = (id) => { const b = $("#" + id + " .on"); return b ? b.dataset.v : ""; };
+  const save = $("#rv-save");
+  if (save) save.addEventListener("click", () => {
+    state.reviews[r.index] = {
+      verdict: cur("rv-verdict"), risk: cur("rv-risk"),
+      evidence: cur("rv-evidence"),
+      note: $("#rv-note").value.trim(),
+      at: new Date().toISOString(),
+    };
+    renderResults();
+    closeDrawer();
+    toast(`Review saved for email #${r.index + 1} — it stays on this device and goes into your CSV export.`);
+  });
+  const clear = $("#rv-clear");
+  if (clear) clear.addEventListener("click", () => {
+    delete state.reviews[r.index];
+    renderResults();
+    closeDrawer();
+    toast(`Review cleared for email #${r.index + 1}.`);
+  });
 }
 
 function closeDrawer() {

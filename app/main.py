@@ -39,7 +39,7 @@ from .demo import DemoProvider
 
 app = FastAPI(
     title="Scope Creep Detector API",
-    version="2.1.0",
+    version="2.2.0",
     description=(
         "Stateless RAG-based detection of scope creep in project email, "
         "grounded in the contractual scope baseline. Research artefact "

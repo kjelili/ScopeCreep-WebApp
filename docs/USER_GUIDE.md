@@ -72,6 +72,22 @@ You can switch anonymisation off, but you will be asked to confirm.
 - **Low retrieval relevance** (in the drawer) — the email didn't match any
   scope section well; the judgement rests on weak context.
 
+## Reviewing as the project manager
+
+Every result can carry your judgement alongside the AI's. Open a row and
+use the review section at the bottom of the drawer: confirm or overturn
+the verdict, set the risk level you would assign, say whether the cited
+evidence is correct, and add a note. Saved reviews stay on your device,
+show a "PM ✓" badge in the list, and appear in the CSV export as separate
+pm_* columns — the AI's original answers are never modified, so the export
+records both opinions side by side. The "Unreviewed" filter shows what is
+left to check.
+
+Evidence badges come in three states: **verified** (the AI quoted a real
+clause the email conflicts with), **boundary ✓** (the request is absent
+from scope and the AI quoted the clause defining the boundary it falls
+outside), and **unverified / no citation** (treat with more care).
+
 ## Things worth knowing
 
 - Results live in memory: export the CSV before stopping the server.

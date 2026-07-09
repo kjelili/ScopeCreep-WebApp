@@ -91,6 +91,25 @@ re-identification round-trip; one sign-off case-sensitivity bug caught and
 fixed); full pytest suite still 46/46; scrub round-trip smoke test passed;
 end-to-end boot with the new UI verified.
 
+## Step 8 — PM review layer + boundary-clause evidence (v2.2.0)
+
+Driven by the first live production run (25 emails, gpt-4o-mini): 22 of 24
+creep verdicts cited "none" as evidence because most scope creep is defined
+by absence from the baseline, which the quotation-based grounding check
+scored as unverified. Two changes: (1) the prompt now asks the model to
+quote the BOUNDARY clause for out-of-scope requests and declare an
+`evidence_basis` (conflict / omission / none), giving three evidence states
+in the UI — verified, boundary ✓ (omission), unverified/no citation;
+(2) a project-manager review layer (FR7 made concrete): per-row confirm or
+overturn of the verdict, risk override, evidence confirmation and a note,
+all held locally in the browser, with the CSV export carrying the AI
+columns untouched plus pm_verdict / pm_risk / pm_evidence / pm_note /
+pm_reviewed_at — a paired AI-vs-practitioner judgement dataset for the
+thesis evaluation.
+
+*Verification:* 51 pytest + 17 node tests passing; JS syntax-checked;
+live click-through pending post-deploy.
+
 ## Known constraints carried forward
 
 In-memory state (single worker, export before restart); no authentication

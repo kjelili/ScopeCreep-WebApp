@@ -91,6 +91,7 @@ class DemoProvider:
                            if creep else "No action needed; monitor the thread."),
             "risk_level": risk,
             "reference_scope_line": sentence if creep else "none",
+            "evidence_basis": "omission" if creep else "none",
             "impact_analysis": ("Potential time/cost impact if actioned informally."
                                 if creep else "No material impact identified."),
         }

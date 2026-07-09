@@ -67,9 +67,16 @@ SYSTEM_PROMPT = (
     '  "justification": brief reasoning grounded in the scope sections\n'
     '  "suggestion": recommended next action for the project manager\n'
     '  "risk_level": one of "Low", "Moderate", "High", "Extreme"\n'
-    '  "reference_scope_line": the exact sentence from the scope sections '
-    "your judgement rests on (quote it verbatim; use \"none\" only if no "
-    "section is relevant)\n"
+    '  "reference_scope_line": one sentence quoted VERBATIM from the scope '
+    "sections. If the email conflicts with or is covered by a clause, quote "
+    "that clause. If the request is ABSENT from the scope (creep by "
+    "omission), quote the boundary clause - the sentence that best defines "
+    "what this part of the works includes - to show the request falls "
+    'outside it. Use "none" only when no retrieved section is even loosely '
+    "related.\n"
+    '  "evidence_basis": "conflict" if the quoted clause covers or conflicts '
+    'with the email, "omission" if you quoted a boundary clause and the '
+    'request is absent from scope, "none" otherwise\n'
     '  "impact_analysis": likely impact on time, cost or quality\n'
     "Never invent scope text. If the scope sections do not cover the topic, "
     "say so in the justification."
@@ -219,6 +226,16 @@ def normalize_verdict(value) -> str:
     return "unknown"
 
 
+def normalize_basis(value, reference: str) -> str:
+    """Standardise the evidence basis. A quoted clause with no stated basis
+    is treated as a conflict citation; 'none' reference forces 'none'."""
+    basis = str(value or "").strip().lower()
+    ref = str(reference or "").strip().lower()
+    if not ref or ref == "none":
+        return "none"
+    return basis if basis in ("conflict", "omission") else "conflict"
+
+
 def _normalise_for_match(s: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", re.sub(r"\s+", " ", s.lower())).strip()
 
@@ -294,6 +311,7 @@ class Judgement:
     justification: str = ""
     suggestion: str = ""
     reference_scope_line: str = "none"
+    evidence_basis: str = "none"      # conflict | omission | none
     impact_analysis: str = ""
     grounded: bool = False
     grounding_score: float = 0.0
@@ -310,6 +328,7 @@ class Judgement:
             "justification": self.justification,
             "suggestion": self.suggestion,
             "reference_scope_line": self.reference_scope_line,
+            "evidence_basis": self.evidence_basis,
             "impact_analysis": self.impact_analysis,
             "grounded": self.grounded,
             "grounding_score": self.grounding_score,
@@ -351,6 +370,8 @@ def analyse_email(email: str, index: ScopeIndex, provider: Provider,
         j.suggestion = str(result.get("suggestion", "")).strip()
         j.reference_scope_line = str(
             result.get("reference_scope_line", "none")).strip() or "none"
+        j.evidence_basis = normalize_basis(
+            result.get("evidence_basis"), j.reference_scope_line)
         j.impact_analysis = str(result.get("impact_analysis", "")).strip()
         j.model = meta.get("model")
         j.system_fingerprint = meta.get("system_fingerprint")

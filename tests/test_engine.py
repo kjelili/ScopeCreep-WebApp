@@ -214,3 +214,21 @@ def test_demo_provider_is_deterministic():
     r1, _ = p.complete("s", prompt)
     r2, _ = p.complete("s", prompt)
     assert r1 == r2
+
+
+def test_normalize_basis():
+    assert engine.normalize_basis("omission", "Some clause.") == "omission"
+    assert engine.normalize_basis("conflict", "Some clause.") == "conflict"
+    assert engine.normalize_basis("", "Some clause.") == "conflict"
+    assert engine.normalize_basis("banana", "Some clause.") == "conflict"
+    assert engine.normalize_basis("omission", "none") == "none"
+    assert engine.normalize_basis(None, "") == "none"
+
+
+def test_analyse_email_carries_evidence_basis():
+    provider = DemoProvider()
+    index = engine.ScopeIndex(SCOPE, provider)
+    j = engine.analyse_email(
+        "Please add an extra rooftop garden urgently.", index, provider)
+    assert j.evidence_basis in ("omission", "conflict")
+    assert "evidence_basis" in j.to_dict()
