@@ -19,7 +19,7 @@ const state = {
   dict: [],               // [{term,type}]
   scrubApproved: false,
   scopeEmbeddings: null,
-  mode: "demo", threshold: "high",
+  mode: "demo", model: "openai", threshold: "high",
   running: false, cancelled: false,
   runId: null,
   results: [], summary: null, smsOutcomes: [],
@@ -291,7 +291,12 @@ function setMode(mode) {
   $("#mode-demo").classList.toggle("on", mode === "demo");
   $("#mode-openai").classList.toggle("on", mode === "openai");
   $("#key-field").style.display = mode === "openai" ? "" : "none";
+  $("#model-field").style.display = mode === "openai" ? "" : "none";
 }
+
+$("#model-select").addEventListener("change", (e) => {
+  state.model = e.target.value;
+});
 
 ["moderate", "high", "extreme"].forEach((t) =>
   $("#th-" + t).addEventListener("click", () => {
@@ -331,10 +336,11 @@ async function runAnalysis() {
   try {
     for (let i = 0; i < rows.length && !state.cancelled; i += batchSize) {
       const slice = rows.slice(i, i + batchSize);
+      const liveMode = state.mode === "demo" ? "demo" : state.model;
       const body = {
         scope_chunks: chunks,
         emails: slice.map((r, k) => ({ index: i + k, email_body: r.email_body })),
-        mode: state.mode,
+        mode: liveMode,
         top_k: 3,
       };
       if (state.mode === "openai") {
@@ -683,6 +689,13 @@ api("/api/health")
   .then((h) => {
     state.twilioConfigured = !!h.twilio_configured;
     state.serverKey = !!h.server_openai_key;
+    const sel = $("#model-select");
+    if (sel && h.models) {
+      if (h.models.anthropic) sel.insertAdjacentHTML("beforeend",
+        '<option value="anthropic">Claude Haiku (Anthropic)</option>');
+      if (h.models.gemini) sel.insertAdjacentHTML("beforeend",
+        '<option value="gemini">Gemini Flash (Google)</option>');
+    }
     if (state.serverKey) {
       $("#api-key").placeholder = "Optional — this deployment provides a key";
     }

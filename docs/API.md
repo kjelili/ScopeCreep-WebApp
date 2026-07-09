@@ -44,7 +44,7 @@ Errors: `400` unsupported type / no extractable text / >400 sections,
   "scope_chunks":     ["…"],
   "scope_embeddings": null,
   "emails":           [{"index":0,"email_body":"…"}],
-  "mode":             "demo",
+  "mode":             "demo",   // demo | openai | anthropic | gemini
   "api_key":          "sk-…",
   "top_k":            3,
   "include_embeddings": false

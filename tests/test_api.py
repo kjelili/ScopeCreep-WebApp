@@ -223,3 +223,75 @@ def test_openai_provider_failure_returns_clear_error(monkeypatch):
     assert r.status_code == 502
     assert "invalid_api_key" in r.json()["detail"]
     assert "Common causes" in r.json()["detail"]
+
+
+def test_comparator_modes_require_server_keys(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    s, _ = _uploads()
+    for mode, name in [("anthropic", "ANTHROPIC_API_KEY"),
+                       ("gemini", "GEMINI_API_KEY")]:
+        r = client.post("/api/analyze-batch", json={
+            "scope_chunks": s["chunks"],
+            "emails": [{"index": 0, "email_body": "hi"}],
+            "mode": mode})
+        assert r.status_code == 400 and name in r.json()["detail"]
+
+
+def test_comparator_mode_uses_openai_embeddings_and_judge_model(monkeypatch):
+    """Retrieval must run on the embed provider; judgement on the comparator."""
+    calls = {"embed": 0, "complete": 0}
+
+    class FakeEmbedder:
+        name = "openai"
+
+        def __init__(self, key): pass
+
+        def embed(self, texts):
+            calls["embed"] += 1
+            import numpy as np
+            return np.ones((len(texts), 8), dtype=np.float32)
+
+        def complete(self, s, u):
+            raise AssertionError("embedder must not judge")
+
+    class FakeJudge:
+        name = "anthropic"
+
+        def __init__(self, key, model=None): pass
+
+        def embed(self, texts):
+            raise AssertionError("judge must not embed")
+
+        def complete(self, s, u):
+            calls["complete"] += 1
+            return ({"scope_creep": "yes", "risk_level": "High",
+                     "justification": "x", "suggestion": "y",
+                     "reference_scope_line": "none",
+                     "evidence_basis": "none",
+                     "impact_analysis": "z"},
+                    {"model": "fake-claude", "system_fingerprint": None})
+
+    import app.main as m
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+    monkeypatch.setattr(m.eng, "OpenAIProvider", FakeEmbedder)
+    monkeypatch.setattr(m.eng, "AnthropicProvider", FakeJudge)
+    s, _ = _uploads()
+    r = client.post("/api/analyze-batch", json={
+        "scope_chunks": s["chunks"],
+        "emails": [{"index": 0, "email_body": "add a window"}],
+        "mode": "anthropic", "include_embeddings": True})
+    assert r.status_code == 200
+    row = r.json()["results"][0]
+    assert row["model"] == "fake-claude" and row["scope_creep"] == "yes"
+    assert calls["embed"] >= 1 and calls["complete"] == 1
+    assert "scope_embeddings" in r.json()  # embeddings returned for reuse
+
+
+def test_health_reports_models(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    m = client.get("/api/health").json()["models"]
+    assert m["openai"] is True and m["anthropic"] is True and m["gemini"] is False

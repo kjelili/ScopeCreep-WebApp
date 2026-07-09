@@ -110,6 +110,24 @@ thesis evaluation.
 *Verification:* 51 pytest + 17 node tests passing; JS syntax-checked;
 live click-through pending post-deploy.
 
+## Step 9 — Multi-model comparison (v2.3.0, RQ1)
+
+Added Claude Haiku (Anthropic SDK) and Gemini Flash (REST, no extra SDK)
+as comparator judgement models, selectable from a dropdown that appears
+only for models whose server keys are configured. Methodological control:
+retrieval is identical in every live mode — OpenAI embeddings, same
+chunks, same top-3 — so verdict differences are attributable to the
+judgement model alone (embed/judge provider split in the API). Model
+names are env-overridable; temperature 0 everywhere; OpenAI alone
+supports a seed (footnoted for the reproducibility analysis). Justified
+against RQ1 ("are AI models effective…"), recorded here as a
+requirements change driven by the research questions rather than
+feature drift.
+
+*Verification:* 54 pytest + 17 node tests, including a provider-split
+test proving the embedder never judges and the judge never embeds, and
+clear 400s when comparator keys are absent.
+
 ## Known constraints carried forward
 
 In-memory state (single worker, export before restart); no authentication

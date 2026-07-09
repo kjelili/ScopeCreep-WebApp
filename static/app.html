@@ -120,7 +120,14 @@
             <button type="button" id="mode-openai">OpenAI — live AI</button>
           </div>
         </label>
+        <label class="field" id="model-field" style="display:none">Model
+          <span class="sub">Retrieval is identical for every model — differences in verdicts come from the model itself.</span>
+          <select id="model-select">
+            <option value="openai" selected>GPT-4o-mini (OpenAI)</option>
+          </select>
+        </label>
         <label class="field" id="key-field" style="display:none">OpenAI API key
+          <span class="sub">Needed for retrieval embeddings in every live model.</span>
           <input type="password" id="api-key" placeholder="sk-..." autocomplete="off">
         </label>
       </div>

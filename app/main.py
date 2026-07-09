@@ -39,7 +39,7 @@ from .demo import DemoProvider
 
 app = FastAPI(
     title="Scope Creep Detector API",
-    version="2.2.0",
+    version="2.3.0",
     description=(
         "Stateless RAG-based detection of scope creep in project email, "
         "grounded in the contractual scope baseline. Research artefact "
@@ -69,7 +69,7 @@ class AnalyzeBatchRequest(BaseModel):
     scope_chunks: list[str] = Field(..., min_length=1, max_length=MAX_CHUNKS)
     scope_embeddings: Optional[list[list[float]]] = None
     emails: list[EmailItem] = Field(..., min_length=1, max_length=MAX_BATCH)
-    mode: str = Field("demo", pattern="^(demo|openai)$")
+    mode: str = Field("demo", pattern="^(demo|openai|anthropic|gemini)$")
     api_key: Optional[str] = None
     top_k: int = Field(3, ge=1, le=10)
     include_embeddings: bool = False
@@ -101,18 +101,41 @@ async def _read_limited(file: UploadFile) -> bytes:
     return data
 
 
-def _provider(mode: str, api_key: Optional[str]):
-    if mode == "openai":
-        # per-request key wins; otherwise fall back to the server-held key
-        # (set OPENAI_API_KEY in the hosting environment). NFR3: neither is
-        # ever logged or persisted.
-        key = (api_key or os.getenv("OPENAI_API_KEY") or "").strip()
-        if not key:
+def _providers(mode: str, api_key: Optional[str]):
+    """Returns (embed_provider, judge_provider). Retrieval embeddings are
+    ALWAYS OpenAI in live modes, so cross-model comparisons (RQ1) isolate
+    the judgement model. Comparator keys are server-held only."""
+    if mode == "demo":
+        d = DemoProvider()
+        return d, d
+    okey = (api_key or os.getenv("OPENAI_API_KEY") or "").strip()
+    if not okey:
+        raise HTTPException(
+            400, "Live modes need an OpenAI key for retrieval embeddings — "
+                 "paste one in the app, or configure OPENAI_API_KEY.")
+    # validate all required keys BEFORE constructing any client, so the
+    # tester gets the precise missing-key message
+    ckey = None
+    if mode == "anthropic":
+        ckey = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+        if not ckey:
             raise HTTPException(
-                400, "OpenAI mode requires an API key — paste one in the "
-                     "app, or configure OPENAI_API_KEY on the server.")
-        return eng.OpenAIProvider(key)
-    return DemoProvider()
+                400, "Claude mode is not available: ANTHROPIC_API_KEY is "
+                     "not configured on the server.")
+    elif mode == "gemini":
+        ckey = (os.getenv("GEMINI_API_KEY") or "").strip()
+        if not ckey:
+            raise HTTPException(
+                400, "Gemini mode is not available: GEMINI_API_KEY is not "
+                     "configured on the server.")
+    oai = eng.OpenAIProvider(okey)
+    if mode == "openai":
+        return oai, oai
+    if mode == "anthropic":
+        return oai, eng.AnthropicProvider(
+            ckey, os.getenv("SCOPEAPP_ANTHROPIC_MODEL", "claude-haiku-4-5"))
+    return oai, eng.GeminiProvider(
+        ckey, os.getenv("SCOPEAPP_GEMINI_MODEL", "gemini-2.5-flash"))
 
 
 # --------------------------------------------------------------- endpoints
@@ -122,6 +145,11 @@ def health():
     return {"status": "ok", "version": app.version,
             "twilio_configured": sms_mod.twilio_configured(),
             "server_openai_key": bool(os.getenv("OPENAI_API_KEY")),
+            "models": {
+                "openai": True,   # via pasted or server key
+                "anthropic": bool(os.getenv("ANTHROPIC_API_KEY")),
+                "gemini": bool(os.getenv("GEMINI_API_KEY")),
+            },
             "limits": {"upload_bytes": MAX_UPLOAD, "emails": MAX_EMAILS,
                        "batch": MAX_BATCH}}
 
@@ -176,20 +204,20 @@ def analyze_batch(req: AnalyzeBatchRequest):
     In OpenAI mode, pass include_embeddings=true on the first batch; the
     response returns the scope embeddings so later batches can send them
     back and avoid re-embedding the baseline every request."""
-    provider = _provider(req.mode, req.api_key)
+    embedder, judge = _providers(req.mode, req.api_key)
 
     if req.scope_embeddings is not None:
         if len(req.scope_embeddings) != len(req.scope_chunks):
             raise HTTPException(
                 400, "scope_embeddings length must match scope_chunks.")
         index = eng.index_from_precomputed(
-            req.scope_chunks, req.scope_embeddings, provider)
+            req.scope_chunks, req.scope_embeddings, embedder)
     else:
-        index = eng.ScopeIndex.from_chunks(req.scope_chunks, provider)
+        index = eng.ScopeIndex.from_chunks(req.scope_chunks, embedder)
 
     # Embed the baseline up front so provider problems (invalid key, no
     # billing, quota) surface as one clear error instead of an opaque 500.
-    if req.mode == "openai" and req.scope_embeddings is None:
+    if req.mode != "demo" and req.scope_embeddings is None:
         try:
             _ = index.matrix
         except Exception as exc:
@@ -201,14 +229,14 @@ def analyze_batch(req: AnalyzeBatchRequest):
 
     results = []
     for item in req.emails:
-        j = eng.analyse_email(item.email_body, index, provider,
+        j = eng.analyse_email(item.email_body, index, judge,
                               top_k=req.top_k)
         results.append({"index": item.index,
                         "email_body": item.email_body,
                         **j.to_dict()})
 
     out = {"results": results}
-    if req.include_embeddings and req.mode == "openai":
+    if req.include_embeddings and req.mode != "demo":
         try:
             out["scope_embeddings"] = index.matrix.tolist()
         except Exception:

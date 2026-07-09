@@ -35,7 +35,11 @@ Project → Settings → Environment Variables:
 
 | Name | Value |
 |---|---|
-| `OPENAI_API_KEY` | server-held OpenAI key — used when a tester leaves the key field blank |
+| `OPENAI_API_KEY` | server-held OpenAI key — judgement (GPT-4o-mini) and retrieval embeddings for ALL live models |
+| `ANTHROPIC_API_KEY` | enables the Claude Haiku comparator in the model dropdown (RQ1 cross-model runs) |
+| `GEMINI_API_KEY` | enables the Gemini Flash comparator in the model dropdown |
+| `SCOPEAPP_ANTHROPIC_MODEL` | optional — override the Claude model name (default `claude-haiku-4-5`) |
+| `SCOPEAPP_GEMINI_MODEL` | optional — override the Gemini model name (default `gemini-2.5-flash`) |
 | `TWILIO_ACCOUNT_SID` | from the Twilio console |
 | `TWILIO_AUTH_TOKEN` | from the Twilio console |
 | `TWILIO_PHONE_NUMBER` | your Twilio number, E.164 |

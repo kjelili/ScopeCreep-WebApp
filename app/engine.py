@@ -153,6 +153,98 @@ class OpenAIProvider:
         return self._with_retries(call)
 
 
+class AnthropicProvider:
+    """Comparator judge model (RQ1 cross-model evaluation). Judgement only:
+    retrieval stays on OpenAI embeddings so verdict differences are
+    attributable to the model, not the retriever. temperature 0; Anthropic
+    has no seed parameter (noted for the reproducibility analysis)."""
+
+    name = "anthropic"
+
+    def __init__(self, api_key: str, chat_model: str = "claude-haiku-4-5",
+                 max_retries: int = 3):
+        import anthropic
+        self._client = anthropic.Anthropic(api_key=api_key)
+        self.chat_model = chat_model
+        self.max_retries = max_retries
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        raise RuntimeError(
+            "AnthropicProvider is judgement-only; retrieval embeddings "
+            "come from the OpenAI embedder (held constant across models).")
+
+    def complete(self, system: str, user: str) -> tuple[dict, dict]:
+        delay, last = 1.0, None
+        for _ in range(self.max_retries):
+            try:
+                resp = self._client.messages.create(
+                    model=self.chat_model, max_tokens=1024, temperature=0.0,
+                    system=system + "\nRespond with the JSON object only.",
+                    messages=[{"role": "user", "content": user}])
+                meta = {"model": resp.model, "system_fingerprint": None,
+                        "usage": (resp.usage.input_tokens
+                                  + resp.usage.output_tokens)}
+                return parse_json_safely(resp.content[0].text), meta
+            except Exception as exc:
+                last = exc
+                if not any(x in type(exc).__name__ for x in
+                           ("RateLimit", "APIConnection", "Timeout",
+                            "Overloaded", "InternalServer", "APIStatus")):
+                    raise
+                time.sleep(delay); delay *= 2
+        raise last  # type: ignore[misc]
+
+
+class GeminiProvider:
+    """Comparator judge model via the Gemini REST API (no extra SDK).
+    Judgement only; see AnthropicProvider note on constant retrieval."""
+
+    name = "gemini"
+
+    def __init__(self, api_key: str, chat_model: str = "gemini-2.5-flash",
+                 max_retries: int = 3):
+        self._key = api_key
+        self.chat_model = chat_model
+        self.max_retries = max_retries
+
+    def embed(self, texts: list[str]) -> np.ndarray:
+        raise RuntimeError(
+            "GeminiProvider is judgement-only; retrieval embeddings "
+            "come from the OpenAI embedder (held constant across models).")
+
+    def complete(self, system: str, user: str) -> tuple[dict, dict]:
+        import httpx
+        url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{self.chat_model}:generateContent")
+        payload = {
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": user}]}],
+            "generationConfig": {"temperature": 0.0,
+                                 "responseMimeType": "application/json"},
+        }
+        delay, last = 1.0, None
+        for _ in range(self.max_retries):
+            try:
+                r = httpx.post(url, params={"key": self._key}, json=payload,
+                               timeout=45)
+                if r.status_code in (429, 500, 502, 503):
+                    raise TimeoutError(f"Gemini transient {r.status_code}")
+                if r.status_code != 200:
+                    raise RuntimeError(
+                        f"Gemini error {r.status_code}: {r.text[:200]}")
+                data = r.json()
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                meta = {"model": data.get("modelVersion", self.chat_model),
+                        "system_fingerprint": None,
+                        "usage": data.get("usageMetadata", {})
+                                     .get("totalTokenCount")}
+                return parse_json_safely(text), meta
+            except (TimeoutError, ConnectionError) as exc:
+                last = exc
+                time.sleep(delay); delay *= 2
+        raise last  # type: ignore[misc]
+
+
 # ----------------------------------------------------------------------------
 # Text processing
 # ----------------------------------------------------------------------------
