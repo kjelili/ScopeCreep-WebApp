@@ -72,6 +72,22 @@ Response:
 Alert eligibility and the results CSV are computed client-side
 (`static/js/app.js`), keeping the endpoint stateless.
 
+## Cumulative drift analysis
+
+`POST /api/analyze-drift` — JSON body:
+
+```json
+{"mode":"demo",
+ "threads":[{"key":"subj:pump room","items":[
+   {"email_body":"…","scope_creep":"yes","risk_level":"moderate",
+    "reference_scope_line":"…"}]}]}
+```
+
+Rules: 1–5 threads per request; 2–20 items per thread (a single item has
+nothing to accumulate). The judge model assesses each sequence as a whole.
+Response per thread: `cumulative_creep`, `cumulative_risk`, `narrative`,
+`recommendation`, `model`, `items_considered`.
+
 ## Send SMS alerts
 
 `POST /api/notify` — JSON body:

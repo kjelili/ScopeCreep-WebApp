@@ -49,6 +49,8 @@ class DemoProvider:
         return out / np.maximum(norms, 1e-9)
 
     def complete(self, system: str, user: str) -> tuple[dict, dict]:
+        if user.startswith("THREAD SEQUENCE"):
+            return self._complete_drift(user)
         email = user.split("EMAIL CONTENT:")[-1]
         scope = user.split("EMAIL CONTENT:")[0]
         toks = set(_tokens(email))
@@ -98,3 +100,27 @@ class DemoProvider:
         meta = {"model": "demo-heuristic-v1", "system_fingerprint": "demo",
                 "usage": 0}
         return result, meta
+
+    def _complete_drift(self, user: str) -> tuple[dict, dict]:
+        """Deterministic aggregate judgement for the drift prompt."""
+        yes = user.count("verdict=yes")
+        highish = user.count("risk=high") + user.count("risk=extreme")
+        creep = yes >= 2
+        risk = ("Extreme" if creep and (yes >= 4 or highish >= 2)
+                else "High" if creep and (yes >= 3 or highish >= 1)
+                else "Moderate" if creep else "Low")
+        result = {
+            "cumulative_creep": "yes" if creep else "no",
+            "cumulative_risk": risk,
+            "narrative": (f"[Demo heuristic] {yes} of the emails in this "
+                          "sequence were individually flagged; taken "
+                          "together they indicate accumulating scope drift."
+                          if creep else
+                          "[Demo heuristic] No accumulation pattern across "
+                          "this sequence."),
+            "recommendation": ("Raise a consolidated change request covering "
+                               "the accumulated items." if creep else
+                               "No action needed; continue monitoring."),
+        }
+        return result, {"model": "demo-heuristic-v1",
+                        "system_fingerprint": "demo", "usage": 0}

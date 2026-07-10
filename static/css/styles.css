@@ -411,3 +411,21 @@ mark.pii {
 .b-omission { color: var(--brand-ink); background: var(--brand-soft); }
 .b-reviewed { color: var(--ok); background: var(--ok-soft); }
 .drawer .seg button { min-height: 40px; padding: 0 var(--s3); }
+
+
+/* drift + calibration + evidence pack */
+.drift-card {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: #fff; padding: var(--s4); margin-bottom: var(--s3);
+}
+.drift-head { display: flex; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; align-items: center; }
+.drift-title { font-weight: 700; color: var(--ink); font-size: var(--fs-sm); }
+.drift-strip { display: flex; gap: 5px; margin: var(--s3) 0; flex-wrap: wrap; }
+.drift-dot {
+  width: 18px; height: 18px; border-radius: 5px; border: 1px solid #33415533;
+  cursor: pointer;
+}
+.drift-narrative { font-size: var(--fs-sm); color: var(--ink-soft); }
+.drift-reco { font-size: var(--fs-xs); color: var(--brand-ink); font-weight: 600; margin-top: var(--s2); }
+.b-building { color: #b45309; background: #fef3c7; }
+.b-none { color: var(--muted); background: var(--bg); }

@@ -309,3 +309,37 @@ def test_no_retrieval_ablation_top_k_zero():
     assert row["retrieved"] == []          # nothing retrieved
     assert "scope_embeddings" not in r.json()  # nothing embedded
     assert row["scope_creep"] in ("yes", "no")
+
+
+def test_analyze_drift_demo():
+    r = client.post("/api/analyze-drift", json={
+        "mode": "demo",
+        "threads": [
+            {"key": "t1", "items": [
+                {"email_body": "add sockets", "scope_creep": "yes",
+                 "risk_level": "moderate"},
+                {"email_body": "and a healing garden", "scope_creep": "yes",
+                 "risk_level": "high"},
+                {"email_body": "also solar", "scope_creep": "yes",
+                 "risk_level": "moderate"}]},
+            {"key": "t2", "items": [
+                {"email_body": "minutes", "scope_creep": "no",
+                 "risk_level": "low"},
+                {"email_body": "schedule confirmed", "scope_creep": "no",
+                 "risk_level": "low"}]},
+        ]})
+    assert r.status_code == 200
+    t1, t2 = r.json()["threads"]
+    assert t1["key"] == "t1" and t1["cumulative_creep"] == "yes"
+    assert t1["cumulative_risk"] in ("high", "extreme")
+    assert t2["cumulative_creep"] == "no"
+
+
+def test_analyze_drift_validates_shape():
+    # single-item thread rejected (nothing to accumulate)
+    r = client.post("/api/analyze-drift", json={
+        "mode": "demo",
+        "threads": [{"key": "t", "items": [
+            {"email_body": "x", "scope_creep": "yes",
+             "risk_level": "low"}]}]})
+    assert r.status_code == 422

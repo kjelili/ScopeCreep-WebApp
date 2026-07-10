@@ -232,3 +232,40 @@ def test_analyse_email_carries_evidence_basis():
         "Please add an extra rooftop garden urgently.", index, provider)
     assert j.evidence_basis in ("omission", "conflict")
     assert "evidence_basis" in j.to_dict()
+
+
+def test_analyse_thread_demo_accumulation():
+    provider = DemoProvider()
+    items = [
+        {"email_body": "add sockets", "scope_creep": "yes",
+         "risk_level": "moderate", "reference_scope_line": "none"},
+        {"email_body": "also a garden", "scope_creep": "yes",
+         "risk_level": "moderate", "reference_scope_line": "none"},
+        {"email_body": "minutes attached", "scope_creep": "no",
+         "risk_level": "low", "reference_scope_line": "none"},
+    ]
+    d = engine.analyse_thread(items, provider)
+    assert d["cumulative_creep"] == "yes"
+    assert d["cumulative_risk"] in engine.RISK_LEVELS
+    assert d["items_considered"] == 3 and d["narrative"]
+
+
+def test_analyse_thread_demo_no_accumulation():
+    provider = DemoProvider()
+    items = [{"email_body": "minutes", "scope_creep": "no",
+              "risk_level": "low", "reference_scope_line": "none"}] * 2
+    d = engine.analyse_thread(items, provider)
+    assert d["cumulative_creep"] == "no"
+
+
+def test_analyse_thread_error_contained():
+    class Broken:
+        name = "broken"
+
+        def complete(self, s, u):
+            raise RuntimeError("boom")
+
+    d = engine.analyse_thread(
+        [{"email_body": "x", "scope_creep": "yes", "risk_level": "high",
+          "reference_scope_line": "none"}] * 2, Broken())
+    assert d["cumulative_creep"] == "error" and "boom" in d["error"]

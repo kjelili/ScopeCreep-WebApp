@@ -12,6 +12,7 @@ implementation and tests. FR = functional, NFR = non-functional.
 | FR5 | Risk grading + configurable alert threshold | 4 levels in `normalize_risk`; ladders in `alert_eligible`; threshold in UI/API | `test_normalize_risk_keeps_four_levels`, `test_alert_threshold_ladders` |
 | FR6 | Every judgement carries its baseline evidence | `reference_scope_line` + independent `verify_grounding` (score + flag per row) | `test_grounding_*` (4 tests), API schema check in E2E |
 | FR7 | Human review, never autonomous action | app surfaces flags for review; no automated downstream action exists | design property; UI review drawer |
+| FR8 | Detect cumulative scope drift across message sequences (Q2, Q6, Q12, Q13) | thread grouping (`threads.js`), drift index, `/api/analyze-drift` aggregate judgement, drift timeline UI | `tests/threads.test.mjs` (6), `test_analyse_thread_*`, `test_analyze_drift_*` |
 | NFR1 | Explainability & traceability | justification, evidence clause, retrieved chunks + similarities, grounding score exposed per row | drawer render + `test_full_demo_run_and_export` |
 | NFR2 | Reliability & consistency | temperature 0, seed, JSON mode, retries; model version logged per row | `test_parse_json_*`, `test_demo_provider_is_deterministic`; Chapter 6 measures live variance |
 | NFR3 | Privacy & data protection | client-side PII scrub with review before upload (scrubber.js); key per-run in memory; SMS bodies content-free; no persistence of uploads | 17 node tests in `tests/scrubber.test.mjs`; `sms.alert_message` |

@@ -516,3 +516,54 @@ def index_from_precomputed(chunks: list[str], embeddings,
 
 ScopeIndex.from_chunks = classmethod(
     lambda cls, chunks, provider: _index_with_chunks(chunks, provider))
+
+
+# ----------------------------------------------------------------------------
+# Cumulative drift analysis (FR8): aggregate judgement over a thread's
+# flagged items. Survey basis Q2/Q6/Q12/Q13 — creep accumulates in small
+# informal changes across long chains and is recognised too late.
+# ----------------------------------------------------------------------------
+
+DRIFT_PROMPT = (
+    "You are an AI assistant supporting construction project governance. "
+    "You are given a SEQUENCE of emails from one thread/project, each with "
+    "a per-email scope verdict already made. Judge the CUMULATIVE picture: "
+    "do these individually assessed requests, taken together, amount to a "
+    "material drift from the contracted scope (for example several small "
+    "additions that jointly constitute an unpriced variation)?\n"
+    "Respond ONLY with a JSON object with exactly these keys:\n"
+    '  "cumulative_creep": "yes" or "no"\n'
+    '  "cumulative_risk": one of "Low", "Moderate", "High", "Extreme" - '
+    "judged for the AGGREGATE, which may exceed any single item\n"
+    '  "narrative": 2-3 sentences naming the pattern across the sequence\n'
+    '  "recommendation": the single next governance action\n'
+    "Base the judgement only on the items provided."
+)
+
+
+def analyse_thread(items: list[dict], provider) -> dict:
+    """Aggregate judgement over ordered thread items. Each item dict needs
+    email_body, scope_creep, risk_level, reference_scope_line."""
+    lines = []
+    for i, it in enumerate(items, 1):
+        lines.append(
+            f"Email {i}: verdict={it.get('scope_creep')}, "
+            f"risk={it.get('risk_level')}, "
+            f"clause_cited={str(it.get('reference_scope_line'))[:120]!r}\n"
+            f"  Text: {str(it.get('email_body'))[:400]}")
+    user = "THREAD SEQUENCE (chronological):\n" + "\n".join(lines)
+    try:
+        result, meta = provider.complete(DRIFT_PROMPT, user)
+        return {
+            "cumulative_creep": normalize_verdict(result.get("cumulative_creep")),
+            "cumulative_risk": normalize_risk(result.get("cumulative_risk")),
+            "narrative": str(result.get("narrative", "")).strip(),
+            "recommendation": str(result.get("recommendation", "")).strip(),
+            "model": meta.get("model"),
+            "items_considered": len(items),
+        }
+    except Exception as exc:
+        return {"cumulative_creep": "error", "cumulative_risk": "unknown",
+                "narrative": "", "recommendation": "",
+                "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+                "items_considered": len(items)}

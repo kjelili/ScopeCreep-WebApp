@@ -23,6 +23,7 @@ const state = {
   running: false, cancelled: false,
   runId: null,
   results: [], summary: null, smsOutcomes: [],
+  threads: [], drift: {},   // drift: threadKey -> aggregate judgement
   filter: "all", search: "", showReal: true,
   reviews: {},          // index -> {verdict, risk, evidence, note, at} (local only)
   twilioConfigured: false,
@@ -326,6 +327,7 @@ async function runAnalysis() {
   state.cancelled = false;
   state.results = [];
   state.reviews = {};
+  state.threads = []; state.drift = {};
   state.runId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
   $("#btn-run").disabled = true;
   $("#btn-cancel").style.display = "";
@@ -370,6 +372,7 @@ async function runAnalysis() {
     }
 
     state.summary = summarise(state.results);
+    await analyseDrift(apiKey);
     renderResults();
     setStep(4, 3);
     toast(state.cancelled
@@ -396,6 +399,175 @@ function summarise(results) {
   }
   return { total: results.length, flagged, risk_counts: rc,
            grounded, errors, low_relevance: lowRel };
+}
+
+/* ------------------------------------------- cumulative drift (FR8) */
+
+async function analyseDrift(apiKey) {
+  state.threads = Threads.group(state.results);
+  state.drift = {};
+  const candidates = Threads.driftCandidates(state.threads);
+  if (!candidates.length) return;
+  const liveMode = state.mode === "demo" ? "demo" : state.model;
+  try {
+    for (let i = 0; i < candidates.length; i += 5) {
+      const body = {
+        mode: liveMode,
+        threads: candidates.slice(i, i + 5).map((t) => ({
+          key: t.key,
+          items: t.items.slice(0, 20).map((r) => ({
+            email_body: String(r.email_body).slice(0, 600),
+            scope_creep: r.scope_creep, risk_level: r.risk_level,
+            reference_scope_line: String(r.reference_scope_line || "none").slice(0, 200),
+          })),
+        })),
+      };
+      if (liveMode !== "demo" && apiKey) body.api_key = apiKey;
+      const data = await api("/api/analyze-drift", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      for (const t of data.threads) state.drift[t.key] = t;
+    }
+  } catch (err) {
+    toast("Drift analysis failed: " + err.message, true);
+  }
+}
+
+const DOT_COLORS = { low: "#d1fae5", moderate: "#fde68a",
+                     high: "#fecaca", extreme: "#7f1d1d" };
+
+function renderDrift() {
+  const sec = $("#drift-section"), list = $("#drift-list");
+  const multi = state.threads.length > 1 ||
+    (state.threads[0] && state.threads[0].key !== "__project__");
+  const rows = state.threads.map((t) => {
+    const idx = Threads.driftIndex(t.items);
+    const agg = state.drift[t.key];
+    if (idx.flagged === 0 && !agg) return "";
+    const dots = t.items.map((r) => {
+      const c = r.scope_creep === "yes"
+        ? (DOT_COLORS[r.risk_level] || "#e2e8f0") : "#f1f5f9";
+      const border = r.scope_creep === "yes" ? "#334155" : "#cbd5e1";
+      return `<span class="drift-dot" data-i="${r.index}" title="Email #${r.index + 1}: ${r.scope_creep}${r.scope_creep === "yes" ? " / " + r.risk_level : ""}" style="background:${c};border-color:${border}"></span>`;
+    }).join("");
+    const aggBadge = agg
+      ? (agg.cumulative_creep === "yes"
+          ? badge("b-" + agg.cumulative_risk, `cumulative: ${agg.cumulative_risk}`)
+          : badge("b-none", "no accumulation"))
+      : badge("b-" + (idx.band === "none" ? "none" : idx.band === "low" ? "low" : "building"),
+              `drift index ${idx.score}`);
+    return `<div class="drift-card">
+      <div class="drift-head">
+        <span class="drift-title">${esc(t.label)} · ${idx.flagged}/${idx.total} flagged</span>
+        <span>${aggBadge} ${badge("b-none", `index ${idx.score}`)}</span>
+      </div>
+      <div class="drift-strip">${dots}</div>
+      ${agg && agg.narrative ? `<div class="drift-narrative">${esc(state.session && state.showReal ? state.session.reidentify(agg.narrative) : agg.narrative)}</div>` : ""}
+      ${agg && agg.recommendation ? `<div class="drift-reco">→ ${esc(agg.recommendation)}</div>` : ""}
+    </div>`;
+  }).filter(Boolean);
+  if (!rows.length) { sec.style.display = "none"; return; }
+  sec.style.display = "";
+  list.innerHTML = (multi ? "" :
+    `<p class="hint">All emails treated as one timeline — add a subject or thread column for per-thread analysis.</p>`)
+    + rows.join("");
+  $$("#drift-list .drift-dot").forEach((d) =>
+    d.addEventListener("click", () => openDrawer(+d.dataset.i)));
+}
+
+/* --------------------------------- self-calibration (measured precision) */
+
+function calibration() {
+  const reviewed = Object.entries(state.reviews);
+  if (reviewed.length < 1) return null;
+  let confirmedFlags = 0, reviewedFlags = 0, agree = 0;
+  for (const [idx, rv] of reviewed) {
+    const r = state.results.find((x) => x.index === +idx);
+    if (!r) continue;
+    if (rv.verdict === r.scope_creep) agree++;
+    if (r.scope_creep === "yes") {
+      reviewedFlags++;
+      if (rv.verdict === "yes") confirmedFlags++;
+    }
+  }
+  return { n: reviewed.length, agree,
+    precision: reviewedFlags ? confirmedFlags / reviewedFlags : null,
+    reviewedFlags };
+}
+
+/* --------------------------------------------- evidence pack (per item) */
+
+function evidencePackHTML(r) {
+  const rv = state.reviews[r.index];
+  const t = state.threads.find((th) => th.items.some((x) => x.index === r.index));
+  const agg = t ? state.drift[t.key] : null;
+  const row = (k, v) => `<tr><th>${k}</th><td>${v}</td></tr>`;
+  const evState = r.grounded
+    ? (r.evidence_basis === "omission" ? "Boundary clause verified (creep by omission)" : "Verified in baseline")
+    : "Not verified against baseline";
+  return `<!doctype html><html><head><meta charset="utf-8">
+<title>Scope evidence pack — email #${r.index + 1}</title>
+<style>
+ body{font-family:Georgia,serif;max-width:720px;margin:40px auto;color:#111;line-height:1.5}
+ h1{font-size:20px;border-bottom:2px solid #1d4ed8;padding-bottom:8px}
+ h2{font-size:14px;text-transform:uppercase;letter-spacing:.05em;color:#444;margin-top:24px}
+ table{border-collapse:collapse;width:100%}
+ th{text-align:left;width:200px;vertical-align:top;padding:6px 10px 6px 0;color:#555;font-weight:600}
+ td{padding:6px 0}
+ blockquote{border-left:3px solid #1d4ed8;margin:8px 0;padding:6px 12px;background:#f6f8fc}
+ .foot{margin-top:32px;font-size:11px;color:#777;border-top:1px solid #ddd;padding-top:8px}
+ @media print {.noprint{display:none}}
+</style></head><body>
+<h1>Scope-change evidence pack</h1>
+<table>
+${row("Generated", new Date().toLocaleString())}
+${row("Analysis run", (state.runId || "").slice(0, 8))}
+${row("Engine", esc(r.model || "demo"))}
+${row("Scope baseline", esc(state.scope ? state.scope.filename : ""))}
+</table>
+<h2>Communication (anonymised)</h2>
+<blockquote>${esc(r.email_body)}</blockquote>
+<h2>AI assessment</h2>
+<table>
+${row("Verdict", r.scope_creep === "yes" ? "Potential scope creep" : "In scope")}
+${row("Risk level", esc(r.risk_level))}
+${row("Justification", esc(r.justification))}
+${row("Suggested action", esc(r.suggestion))}
+${row("Impact analysis", esc(r.impact_analysis))}
+</table>
+<h2>Evidence</h2>
+<table>
+${row("Cited scope clause", `<blockquote>${esc(r.reference_scope_line)}</blockquote>`)}
+${row("Verification", `${evState} (grounding score ${r.grounding_score})`)}
+</table>
+${agg ? `<h2>Thread context (cumulative)</h2><table>
+${row("Thread", esc(t.label))}
+${row("Cumulative judgement", `${esc(agg.cumulative_creep)} — ${esc(agg.cumulative_risk)} risk`)}
+${row("Pattern", esc(agg.narrative))}
+</table>` : ""}
+<h2>Project manager review</h2>
+<table>
+${rv ? row("Reviewer verdict", rv.verdict === "yes" ? "Confirmed as scope creep" : "Assessed as in scope")
+     + row("Reviewer risk", esc(rv.risk))
+     + row("Evidence assessment", esc(rv.evidence))
+     + row("Note", esc(rv.note || "—"))
+     + row("Reviewed at", new Date(rv.at).toLocaleString())
+  : row("Status", "Not yet reviewed — this pack records the AI assessment only")}
+</table>
+<p class="foot">Generated by Scope Creep Detector (research artefact). Email content shown is the anonymised text as analysed; the AI assessment is advisory and the reviewer's judgement governs. Intended for submission into the project's existing change-control process.</p>
+<p class="noprint"><button onclick="print()">Print / save as PDF</button></p>
+</body></html>`;
+}
+
+function downloadEvidencePack(r) {
+  const html = evidencePackHTML(r);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+  a.download = `evidence_pack_email${r.index + 1}_${(state.runId || "run").slice(0, 8)}.html`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("Evidence pack downloaded — open it and print to PDF for your change-control file.");
 }
 
 /* ------------------------------------------------------------- SMS alerts */
@@ -453,6 +625,7 @@ function renderResults() {
     .join("");
 
   renderRows();
+  renderDrift();
 }
 
 function updateNamesBtn() {
@@ -476,13 +649,15 @@ function renderSummaryCards() {
   const s = state.summary || {};
   const rc = s.risk_counts || {};
   const smsSent = state.smsOutcomes.filter((o) => o.status === "sent").length;
+  const cal = calibration();
   $("#sumgrid").innerHTML = `
     <div class="sum"><b>${s.total ?? 0}</b><span>emails analysed</span></div>
     <div class="sum"><b>${s.flagged ?? 0}</b><span>flagged as scope creep</span></div>
     <div class="sum"><b style="color:var(--risk-high)">${(rc.high ?? 0) + (rc.extreme ?? 0)}</b><span>high / extreme risk</span></div>
     <div class="sum"><b style="color:var(--brand-ink)">${s.grounded ?? 0}</b><span>with verified evidence</span></div>
     <div class="sum"><b>${smsSent}</b><span>SMS alerts sent</span></div>
-    <div class="sum"><b style="color:var(--ok)">${Object.keys(state.reviews).length}</b><span>reviewed by you</span></div>`;
+    <div class="sum"><b style="color:var(--ok)">${Object.keys(state.reviews).length}</b><span>reviewed by you</span></div>
+    ${cal && cal.reviewedFlags >= 5 ? `<div class="sum"><b style="color:var(--brand-ink)">${Math.round(cal.precision * 100)}%</b><span>measured precision — ${cal.reviewedFlags} flags you checked</span></div>` : ""}`;
 }
 
 function visibleRows() {
@@ -560,7 +735,13 @@ $("#btn-export").addEventListener("click", () => {
   };
   const rowsOut = state.results.map((r) => {
     const rv = state.reviews[r.index] || {};
-    return { ...r, pm_verdict: rv.verdict || "", pm_risk: rv.risk || "",
+    const t = state.threads.find((th) => th.items.some((x) => x.index === r.index));
+    const agg = t ? state.drift[t.key] : null;
+    return { ...r,
+             thread: t ? t.label : "",
+             thread_cumulative_creep: agg ? agg.cumulative_creep : "",
+             thread_cumulative_risk: agg ? agg.cumulative_risk : "",
+             pm_verdict: rv.verdict || "", pm_risk: rv.risk || "",
              pm_evidence: rv.evidence || "", pm_note: rv.note || "",
              pm_reviewed_at: rv.at || "" };
   });
@@ -632,6 +813,7 @@ function reviewFormHTML(r) {
       <input type="text" id="rv-note" placeholder="Reviewer note (optional)" value="${esc(rv.note || "")}">
       <div class="runbar" style="margin-top:var(--s3)">
         <button class="btn btn-primary btn-sm" id="rv-save">Save review</button>
+        <button class="btn btn-ghost btn-sm" id="rv-pack" type="button">📄 Evidence pack</button>
         ${rv.at ? `<button class="btn btn-ghost btn-sm" id="rv-clear">Clear</button>` : ""}
         <span class="run-meta" id="rv-status">${rv.at ? "Reviewed " + new Date(rv.at).toLocaleString() : "Not reviewed yet"}</span>
       </div>
@@ -662,6 +844,8 @@ function wireReviewForm(r) {
     closeDrawer();
     toast(`Review saved for email #${r.index + 1} — it stays on this device and goes into your CSV export.`);
   });
+  const pack = $("#rv-pack");
+  if (pack) pack.addEventListener("click", () => downloadEvidencePack(r));
   const clear = $("#rv-clear");
   if (clear) clear.addEventListener("click", () => {
     delete state.reviews[r.index];

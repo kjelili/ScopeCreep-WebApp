@@ -39,7 +39,7 @@ from .demo import DemoProvider
 
 app = FastAPI(
     title="Scope Creep Detector API",
-    version="2.4.0",
+    version="2.5.0",
     description=(
         "Stateless RAG-based detection of scope creep in project email, "
         "grounded in the contractual scope baseline. Research artefact "
@@ -73,6 +73,24 @@ class AnalyzeBatchRequest(BaseModel):
     api_key: Optional[str] = None
     top_k: int = Field(3, ge=0, le=10)   # 0 = no-retrieval ablation
     include_embeddings: bool = False
+
+
+class DriftItem(BaseModel):
+    email_body: str
+    scope_creep: str = "unknown"
+    risk_level: str = "unknown"
+    reference_scope_line: str = "none"
+
+
+class DriftThread(BaseModel):
+    key: str
+    items: list[DriftItem] = Field(..., min_length=2, max_length=20)
+
+
+class AnalyzeDriftRequest(BaseModel):
+    threads: list[DriftThread] = Field(..., min_length=1, max_length=5)
+    mode: str = Field("demo", pattern="^(demo|openai|anthropic|gemini)$")
+    api_key: Optional[str] = None
 
 
 class NotifyItem(BaseModel):
@@ -242,6 +260,21 @@ def analyze_batch(req: AnalyzeBatchRequest):
         except Exception:
             pass  # embeddings cache is an optimisation, never a failure
     return out
+
+
+@app.post("/api/analyze-drift")
+def analyze_drift(req: AnalyzeDriftRequest):
+    """Cumulative drift judgement per thread (FR8). The client groups
+    analysed emails into threads and sends the sequences; the judge model
+    assesses the aggregate. Stateless; no retrieval needed (per-email
+    verdicts already carry their evidence)."""
+    _, judge = _providers(req.mode, req.api_key)
+    out = []
+    for t in req.threads:
+        d = eng.analyse_thread([i.model_dump() for i in t.items], judge)
+        d["key"] = t.key
+        out.append(d)
+    return {"threads": out}
 
 
 @app.post("/api/notify")

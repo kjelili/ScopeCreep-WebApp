@@ -88,6 +88,29 @@ clause the email conflicts with), **boundary ✓** (the request is absent
 from scope and the AI quoted the clause defining the boundary it falls
 outside), and **unverified / no citation** (treat with more care).
 
+## Cumulative drift, evidence packs and your measured precision
+
+Scope creep rarely arrives as one big request — it accumulates. Below the
+results list, the drift section groups your emails into threads (add
+`subject`, `thread` or `date` columns to your CSV for better grouping) and
+shows each as a row of dots — one per email, coloured by risk. Threads
+with two or more flags receive an aggregate judgement: whether the
+sequence, taken together, amounts to a material drift, at what risk, and
+what single governance action to take next. Click any dot to open that
+email.
+
+From any email's drawer, **Evidence pack** downloads a printable document
+— the anonymised excerpt, the cited clause with its verification state,
+the AI's assessment, your review and the thread context — formatted for
+submission into your organisation's existing change-control process. The
+tool deliberately stops there: it prepares the referral; your process
+decides.
+
+Once you have reviewed five or more flagged emails, a **measured
+precision** card appears: the percentage of the AI's flags that you, the
+reviewer, confirmed. No vendor promise — your own measurement, from your
+own judgements, on your own project.
+
 ## Things worth knowing
 
 - Results live in memory: export the CSV before stopping the server.

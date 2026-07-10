@@ -143,16 +143,28 @@ baseline.
 *Verification:* 55 pytest + 17 node tests, including the top_k=0 path
 (empty retrieval, no embeddings returned).
 
-## Step 11 — Repository split: practitioner app vs evaluation instrument
+## Step 12 — Cumulative drift, evidence packs, self-calibration (v2.5.0)
 
-The evaluation tooling (scripts/ablation.py, the labelled benchmark and
-docs/ABLATION.md) moved to a separate, version-pinned repository
-(ScopeCreep-Evaluation, frozen at v2.4.0) used to reproduce the Chapter 6
-results for supervisors and examiners. This repository remains the
-practitioner-facing proof-of-concept and continues to evolve with pilot
-feedback. The API's top_k>=0 capability is retained here (four lines,
-tested, unreachable from the UI) so the two codebases stay behaviourally
-identical at the split point.
+Closed a coverage gap between the survey and the artefact: Q12/Q13 (scope
+implications hard to track across long threads; information missed in
+chains) and Q2 (creep accumulates in small informal changes) describe a
+TEMPORAL problem that per-message classification — ours and every
+commercial tool's — does not address. Three additions, derived from FR8
+(new): (1) thread grouping (explicit thread column, else normalised
+subject, else one project timeline; date-ordered when possible) with a
+transparent severity-weighted drift index, plus /api/analyze-drift — an
+aggregate LLM judgement per thread with 2+ flagged items (cumulative
+verdict, risk, narrative, recommendation), rendered as a drift timeline
+of clickable dots; (2) per-item evidence packs — a printable governance
+handoff document (anonymised excerpt, cited clause + verification state,
+AI assessment, PM review, thread context) for the practitioner's EXISTING
+change-control process, deliberately not a variation order; (3) a
+self-calibration card showing measured precision computed from the PM's
+own confirm/overturn decisions once five flags have been reviewed. The
+frozen evaluation repository (v2.4.0) is untouched.
+
+*Verification:* 60 pytest + 23 node tests (6 new for thread grouping,
+5 new for drift engine/API); E2E boot with drift flow verified.
 
 ## Known constraints carried forward
 
