@@ -550,7 +550,12 @@ ${row("Pattern", esc(agg.narrative))}
 <table>
 ${rv ? row("Reviewer verdict", rv.verdict === "yes" ? "Confirmed as scope creep" : "Assessed as in scope")
      + row("Reviewer risk", esc(rv.risk))
-     + row("Evidence assessment", esc(rv.evidence))
+     + row("Evidence assessment", esc({
+         confirmed: "Cited clause confirmed as supporting the verdict",
+         rejected: "Cited clause judged incorrect for this verdict",
+         unsure: "Reviewer unsure about the cited clause",
+         "n/a": "No clause was cited — nothing to assess",
+       }[rv.evidence] || rv.evidence))
      + row("Note", esc(rv.note || "—"))
      + row("Reviewed at", new Date(rv.at).toLocaleString())
   : row("Status", "Not yet reviewed — this pack records the AI assessment only")}
@@ -794,12 +799,27 @@ function openDrawer(i) {
 
 /* ---------------------------------------------- PM review (FR7, local) */
 
+/* True when the AI cited no clause — there is no evidence to assess. */
+function noClauseCited(r) {
+  const c = String(r.reference_scope_line || "").trim().toLowerCase();
+  return !c || c === "none" || c === "n/a" || c === "-";
+}
+
 function reviewFormHTML(r) {
   const rv = state.reviews[r.index] || {};
   const verdict = rv.verdict || r.scope_creep;
   const risk = rv.risk || r.risk_level;
   const seg = (id, opts, cur) => `<div class="seg" id="${id}">` + opts.map(([v, lab]) =>
     `<button type="button" data-v="${v}" class="${v === cur ? "on" : ""}">${lab}</button>`).join("") + "</div>";
+  const evidenceRow = noClauseCited(r)
+    ? `<p class="hint" style="margin-bottom:var(--s3)">No scope clause was cited
+       for this verdict, so there is no evidence to assess — recorded as
+       “n/a”. Use the verdict buttons above to confirm or overturn.</p>`
+    : `<p class="hint" style="margin-bottom:var(--s2)">Did the cited clause
+       (above) actually support this verdict?</p>
+      <div class="switch-row" style="margin-bottom:var(--s3)">
+        ${seg("rv-evidence", [["confirmed", "Clause supports it"], ["rejected", "Wrong clause"], ["unsure", "Unsure"]], rv.evidence || "unsure")}
+      </div>`;
   return `
     <div class="kv" style="border-top:2px solid var(--line); padding-top:var(--s4)">
       <div class="k">Project manager review — your judgement, recorded in the export</div>
@@ -807,9 +827,7 @@ function reviewFormHTML(r) {
         ${seg("rv-verdict", [["yes", "Scope creep"], ["no", "In scope"]], verdict)}
         ${seg("rv-risk", [["low", "Low"], ["moderate", "Mod"], ["high", "High"], ["extreme", "Extreme"]], risk)}
       </div>
-      <div class="switch-row" style="margin-bottom:var(--s3)">
-        ${seg("rv-evidence", [["confirmed", "Evidence correct"], ["rejected", "Evidence wrong"], ["unsure", "Unsure"]], rv.evidence || "unsure")}
-      </div>
+      ${evidenceRow}
       <input type="text" id="rv-note" placeholder="Reviewer note (optional)" value="${esc(rv.note || "")}">
       <div class="runbar" style="margin-top:var(--s3)">
         <button class="btn btn-primary btn-sm" id="rv-save">Save review</button>
@@ -836,7 +854,7 @@ function wireReviewForm(r) {
   if (save) save.addEventListener("click", () => {
     state.reviews[r.index] = {
       verdict: cur("rv-verdict"), risk: cur("rv-risk"),
-      evidence: cur("rv-evidence"),
+      evidence: noClauseCited(r) ? "n/a" : cur("rv-evidence"),
       note: $("#rv-note").value.trim(),
       at: new Date().toISOString(),
     };

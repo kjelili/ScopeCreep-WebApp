@@ -88,6 +88,15 @@ clause the email conflicts with), **boundary ✓** (the request is absent
 from scope and the AI quoted the clause defining the boundary it falls
 outside), and **unverified / no citation** (treat with more care).
 
+## What the evidence buttons in the review drawer mean
+
+The verdict and risk buttons record YOUR judgement of the email. The
+evidence buttons record something narrower: whether the scope clause the
+AI cited actually supports its verdict — your check of the AI's homework.
+When the AI cited no clause (common for in-scope emails), there is nothing
+to assess, so the control disappears and the export records "n/a" instead
+of a meaningless "unsure".
+
 ## Cumulative drift, evidence packs and your measured precision
 
 Scope creep rarely arrives as one big request — it accumulates. Below the
