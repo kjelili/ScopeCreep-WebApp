@@ -39,7 +39,7 @@ from .demo import DemoProvider
 
 app = FastAPI(
     title="Scope Creep Detector API",
-    version="2.3.0",
+    version="2.4.0",
     description=(
         "Stateless RAG-based detection of scope creep in project email, "
         "grounded in the contractual scope baseline. Research artefact "
@@ -71,7 +71,7 @@ class AnalyzeBatchRequest(BaseModel):
     emails: list[EmailItem] = Field(..., min_length=1, max_length=MAX_BATCH)
     mode: str = Field("demo", pattern="^(demo|openai|anthropic|gemini)$")
     api_key: Optional[str] = None
-    top_k: int = Field(3, ge=1, le=10)
+    top_k: int = Field(3, ge=0, le=10)   # 0 = no-retrieval ablation
     include_embeddings: bool = False
 
 
@@ -217,7 +217,7 @@ def analyze_batch(req: AnalyzeBatchRequest):
 
     # Embed the baseline up front so provider problems (invalid key, no
     # billing, quota) surface as one clear error instead of an opaque 500.
-    if req.mode != "demo" and req.scope_embeddings is None:
+    if req.mode != "demo" and req.scope_embeddings is None and req.top_k > 0:
         try:
             _ = index.matrix
         except Exception as exc:
@@ -236,7 +236,7 @@ def analyze_batch(req: AnalyzeBatchRequest):
                         **j.to_dict()})
 
     out = {"results": results}
-    if req.include_embeddings and req.mode != "demo":
+    if req.include_embeddings and req.mode != "demo" and req.top_k > 0:
         try:
             out["scope_embeddings"] = index.matrix.tolist()
         except Exception:

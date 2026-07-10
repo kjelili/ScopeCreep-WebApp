@@ -128,6 +128,32 @@ feature drift.
 test proving the embedder never judges and the judge never embeds, and
 clear 400s when comparator keys are absent.
 
+## Step 10 — Ablation kit (v2.4.0, §6.5)
+
+Added the no-retrieval ablation condition (top_k=0 judges with no scope
+context; skips embedding work), scripts/ablation.py (runs demo/noret/k1/
+full/k5 per model against the deployed API and writes precision, recall,
+F1, accuracy, flag rate, grounding rate and evidence-basis counts to
+summary.csv plus per-condition row files), a 30-email labelled benchmark
+(test_data/labelled_test_emails.csv — 25 sample emails + 5 in-scope
+additions; labels to be reviewed by the researcher per §6.3), and
+docs/ABLATION.md. The demo heuristic doubles as the §6.5.1 keyword
+baseline.
+
+*Verification:* 55 pytest + 17 node tests, including the top_k=0 path
+(empty retrieval, no embeddings returned).
+
+## Step 11 — Repository split: practitioner app vs evaluation instrument
+
+The evaluation tooling (scripts/ablation.py, the labelled benchmark and
+docs/ABLATION.md) moved to a separate, version-pinned repository
+(ScopeCreep-Evaluation, frozen at v2.4.0) used to reproduce the Chapter 6
+results for supervisors and examiners. This repository remains the
+practitioner-facing proof-of-concept and continues to evolve with pilot
+feedback. The API's top_k>=0 capability is retained here (four lines,
+tested, unreachable from the UI) so the two codebases stay behaviourally
+identical at the split point.
+
 ## Known constraints carried forward
 
 In-memory state (single worker, export before restart); no authentication

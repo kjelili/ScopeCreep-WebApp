@@ -1,6 +1,6 @@
 [project]
 name = "scopecreep-detector"
-version = "2.3.0"
+version = "2.4.0"
 description = "RAG-grounded scope-creep detection for project email (research artefact)"
 requires-python = ">=3.10"
 

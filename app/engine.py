@@ -440,7 +440,9 @@ def analyse_email(email: str, index: ScopeIndex, provider: Provider,
     """Run one email through retrieval + grounded judgement (FR3–FR6)."""
     j = Judgement()
     try:
-        relevant = index.retrieve(email, top_k=top_k)
+        # top_k == 0 is the no-retrieval ablation condition (§6.5.3): the
+        # model judges without any scope context.
+        relevant = index.retrieve(email, top_k=top_k) if top_k > 0 else []
         j.retrieved = relevant
         j.low_relevance = bool(relevant) and max(
             s for _, s in relevant) < MIN_SIMILARITY

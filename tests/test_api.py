@@ -295,3 +295,17 @@ def test_health_reports_models(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     m = client.get("/api/health").json()["models"]
     assert m["openai"] is True and m["anthropic"] is True and m["gemini"] is False
+
+
+def test_no_retrieval_ablation_top_k_zero():
+    """top_k=0 (§6.5.3): judgement with no scope context; no embeddings."""
+    s, _ = _uploads()
+    r = client.post("/api/analyze-batch", json={
+        "scope_chunks": s["chunks"],
+        "emails": [{"index": 0, "email_body": "Can we add a rooftop garden?"}],
+        "mode": "demo", "top_k": 0, "include_embeddings": True})
+    assert r.status_code == 200
+    row = r.json()["results"][0]
+    assert row["retrieved"] == []          # nothing retrieved
+    assert "scope_embeddings" not in r.json()  # nothing embedded
+    assert row["scope_creep"] in ("yes", "no")
